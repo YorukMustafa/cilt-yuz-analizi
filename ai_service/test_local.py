@@ -4,6 +4,11 @@ Sentetik bir test görseli oluşturup analyzer.py motorunu doğrular.
 Çalıştırmak için: python test_local.py
 """
 
+import os
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
 import numpy as np
 import cv2
 from analyzer import SkinAnalyzer

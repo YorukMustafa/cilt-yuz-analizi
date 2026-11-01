@@ -11,15 +11,74 @@ Algoritmalar:
 import cv2
 import numpy as np
 import base64
-from skimage.feature import graycomatrix, graycoprops
+
+try:
+    from skimage.feature import graycomatrix, graycoprops
+    SKIMAGE_AVAILABLE = True
+except ImportError:
+    SKIMAGE_AVAILABLE = False
+
+
+def _numpy_glcm_features(quantized, levels=16):
+    """NumPy tabanlı hızlı Haralick Doku (GLCM) hesaplayıcı (skimage yedeği)."""
+    h, w = quantized.shape
+    # Basit ve hızlı 4 yönlü komşuluk (sağ, alt-sağ, alt, alt-sol)
+    pairs = [
+        (quantized[:, :-1], quantized[:, 1:]),                # 0 derece (yatay)
+        (quantized[:-1, :-1], quantized[1:, 1:]),            # 45 derece (çapraz)
+        (quantized[:-1, :], quantized[1:, :]),                # 90 derece (dikey)
+        (quantized[:-1, 1:], quantized[1:, :-1])             # 135 derece (ters çapraz)
+    ]
+    
+    contrasts, homogeneities, energies, correlations = [], [], [], []
+    
+    for p1, p2 in pairs:
+        f1 = p1.ravel()
+        f2 = p2.ravel()
+        mat = np.zeros((levels, levels), dtype=np.float64)
+        np.add.at(mat, (f1, f2), 1)
+        # Simetrik yap
+        mat = mat + mat.T
+        total = mat.sum()
+        if total > 0:
+            mat /= total
+            
+        i, j = np.indices((levels, levels))
+        diff = i - j
+        contrast = np.sum((diff ** 2) * mat)
+        homogeneity = np.sum(mat / (1.0 + np.abs(diff)))
+        energy = np.sum(mat ** 2)
+        
+        mi = np.sum(i * mat)
+        mj = np.sum(j * mat)
+        si = np.sqrt(np.sum(((i - mi) ** 2) * mat))
+        sj = np.sqrt(np.sum(((j - mj) ** 2) * mat))
+        correlation = np.sum((i - mi) * (j - mj) * mat) / (si * sj + 1e-8)
+        
+        contrasts.append(contrast)
+        homogeneities.append(homogeneity)
+        energies.append(energy)
+        correlations.append(correlation)
+        
+    return {
+        "contrast": float(np.mean(contrasts)),
+        "homogeneity": float(np.mean(homogeneities)),
+        "energy": float(np.mean(energies)),
+        "correlation": float(np.mean(correlations))
+    }
+
 
 
 class SkinAnalyzer:
     def __init__(self):
-        # Yüz tespiti için Haar Cascade sınıflandırıcısı
-        self.face_cascade = cv2.CascadeClassifier(
-            cv2.data.haarcascades + "haarcascade_frontalface_default.xml"
-        )
+        self.face_cascade = None
+        if hasattr(cv2, 'CascadeClassifier') and hasattr(cv2, 'data'):
+            try:
+                self.face_cascade = cv2.CascadeClassifier(
+                    cv2.data.haarcascades + "haarcascade_frontalface_default.xml"
+                )
+            except Exception:
+                pass
 
     def decode_image(self, image_bytes: bytes) -> np.ndarray:
         """Bayt dizisinden OpenCV formatında (BGR) görsel okur."""
@@ -128,21 +187,26 @@ class SkinAnalyzer:
         # 16 seviyeli kuantizasyon (hesaplama hızını ve gürültü toleransını artırır)
         quantized = (roi_gray // 16).astype(np.uint8)
 
-        # GLCM matrisini 4 yönde (0, 45, 90, 135 derece) hesapla
-        glcm = graycomatrix(
-            quantized,
-            distances=[1, 2],
-            angles=[0, np.pi/4, np.pi/2, 3*np.pi/4],
-            levels=16,
-            symmetric=True,
-            normed=True
-        )
-
-        # Haralick doku metriklerini çıkar
-        contrast = float(graycoprops(glcm, 'contrast').mean())
-        homogeneity = float(graycoprops(glcm, 'homogeneity').mean())
-        energy = float(graycoprops(glcm, 'energy').mean())
-        correlation = float(graycoprops(glcm, 'correlation').mean())
+        if SKIMAGE_AVAILABLE:
+            # GLCM matrisini 4 yönde (0, 45, 90, 135 derece) hesapla
+            glcm = graycomatrix(
+                quantized,
+                distances=[1, 2],
+                angles=[0, np.pi/4, np.pi/2, 3*np.pi/4],
+                levels=16,
+                symmetric=True,
+                normed=True
+            )
+            contrast = float(graycoprops(glcm, 'contrast').mean())
+            homogeneity = float(graycoprops(glcm, 'homogeneity').mean())
+            energy = float(graycoprops(glcm, 'energy').mean())
+            correlation = float(graycoprops(glcm, 'correlation').mean())
+        else:
+            glcm_res = _numpy_glcm_features(quantized, levels=16)
+            contrast = glcm_res["contrast"]
+            homogeneity = glcm_res["homogeneity"]
+            energy = glcm_res["energy"]
+            correlation = glcm_res["correlation"]
 
         # Kırışıklık kenarlarını Canny filtresiyle doğrula
         edges = cv2.Canny(roi_gray, 50, 150)

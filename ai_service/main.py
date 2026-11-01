@@ -5,6 +5,11 @@ Spring Boot veya Web Arayüzü tarafından gönderilen fotoğrafları karşılar
 görüntü işleme & yapay zeka analizini çalıştırır ve JSON rapor üretir.
 """
 
+import os
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
 from fastapi import FastAPI, File, UploadFile, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from analyzer import SkinAnalyzer
