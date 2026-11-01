@@ -12,6 +12,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from fastapi import FastAPI, File, UploadFile, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from analyzer import SkinAnalyzer
 import uvicorn
 
@@ -34,18 +35,6 @@ app.add_middleware(
 analyzer = SkinAnalyzer()
 
 
-@app.get("/")
-def index():
-    return {
-        "service": "Face & Skin AI Analysis Microservice",
-        "status": "running",
-        "endpoints": {
-            "health": "/health",
-            "analyze": "POST /api/analyze"
-        }
-    }
-
-
 @app.get("/health")
 def health_check():
     return {"status": "UP", "engine": "OpenCV + GLCM + AI"}
@@ -65,6 +54,13 @@ async def analyze_skin(file: UploadFile = File(...)):
         return results
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Analiz sırasında hata oluştu: {str(e)}")
+
+
+# Web arayüzünü (Frontend) doğrudan http://localhost:8000 adresinde sun
+frontend_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "frontend"))
+if os.path.exists(frontend_dir):
+    app.mount("/", StaticFiles(directory=frontend_dir, html=True), name="frontend")
+
 
 
 if __name__ == "__main__":
