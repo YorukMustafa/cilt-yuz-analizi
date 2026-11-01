@@ -161,10 +161,15 @@ function renderResults(data) {
     overallScore.textContent = data.overall_health_score;
     statusEvaluation.textContent = data.status_evaluation;
 
-    // Leke Metrikleri
+    // Leke & Egzema Metrikleri
     const blemish = data.blemish_analysis;
     spotCount.textContent = blemish.detected_spots_count;
-    spotSeverity.textContent = `${blemish.blemish_severity_score} / 100`;
+    
+    let subText = `Şiddet: <strong>${blemish.blemish_severity_score}/100</strong>`;
+    if (blemish.eczema_redness_count !== undefined) {
+        subText += ` | 🔴 Egzema/Kızarıklık: <strong>${blemish.eczema_redness_count}</strong> | 🟠 Koyu Leke: <strong>${blemish.pigment_spots_count}</strong>`;
+    }
+    spotSeverity.innerHTML = subText;
     spotBar.style.width = `${Math.min(100, blemish.blemish_severity_score)}%`;
 
     // Kırışıklık Metrikleri

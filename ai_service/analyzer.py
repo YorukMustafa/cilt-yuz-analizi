@@ -1,11 +1,12 @@
 """
 Yapay Zeka ve Görüntü İşleme Tabanlı Yüz ve Cilt Analiz Motoru
 ---------------------------------------------------------------
-Algoritmalar:
-1. Cilt Segmentasyonu (HSV + YCrCb Hibrit Maskeleme)
-2. Leke / Hiperpigmentasyon Tespiti (Color Thresholding + Morfoloji)
-3. Kırışıklık ve Doku Analizi (GLCM Haralick Öznitelikleri: Kontrast, Homojenlik, Enerji)
-4. Görselleştirme (Leke ve Kırışıklık Haritası Çıkarımı)
+Gelişmiş Algoritmalar:
+1. İç Yüz Segmentasyonu (Kulak, kıyafet, yaka ve arka planı filtreleyen eliptik ROI)
+2. Koyu Özellik Maskeleme (Göz, kaş, sakal, bıyık ve saç diplerini leke analizinden çıkarma)
+3. Dermatolojik Egzema & Kızarıklık Tespiti (Erythema İndeksi: R - G fark analizi)
+4. Melanin & Hiperpigmentasyon Tespiti (Lokal kontrast parlaklık analizi)
+5. Alın & Yanak GLCM Haralick Doku / Kırışıklık Analizi
 """
 
 import cv2
@@ -22,7 +23,6 @@ except ImportError:
 def _numpy_glcm_features(quantized, levels=16):
     """NumPy tabanlı hızlı Haralick Doku (GLCM) hesaplayıcı (skimage yedeği)."""
     h, w = quantized.shape
-    # Basit ve hızlı 4 yönlü komşuluk (sağ, alt-sağ, alt, alt-sol)
     pairs = [
         (quantized[:, :-1], quantized[:, 1:]),                # 0 derece (yatay)
         (quantized[:-1, :-1], quantized[1:, 1:]),            # 45 derece (çapraz)
@@ -37,7 +37,6 @@ def _numpy_glcm_features(quantized, levels=16):
         f2 = p2.ravel()
         mat = np.zeros((levels, levels), dtype=np.float64)
         np.add.at(mat, (f1, f2), 1)
-        # Simetrik yap
         mat = mat + mat.T
         total = mat.sum()
         if total > 0:
@@ -68,7 +67,6 @@ def _numpy_glcm_features(quantized, levels=16):
     }
 
 
-
 class SkinAnalyzer:
     def __init__(self):
         self.face_cascade = None
@@ -91,18 +89,18 @@ class SkinAnalyzer:
 
     def extract_face_and_skin_mask(self, img_bgr: np.ndarray):
         """
-        Arka planı (çarşaf, duvar, perde), saçları, sakalı ve gözleri eleyerek
-        YALNIZCA gerçek yüz cilt bölgesini (alın, yanaklar, burun çevresi) izole eder.
+        Kulakları, kazak/yakayı, arka planı, saçları ve sakalı dışarıda bırakarak
+        YALNIZCA iç yüz bölgesini (alın, yanaklar, burun, çene) izole eder.
         """
         h, w = img_bgr.shape[:2]
         gray = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2GRAY)
 
-        # 1. YCrCb ve HSV renk uzaylarında ten rengi segmentasyonu
+        # 1. Ten rengi tespiti (YCrCb + HSV)
         ycrcb = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2YCrCb)
         skin_ycrcb = cv2.inRange(ycrcb, np.array([55, 133, 80]), np.array([245, 175, 128]))
 
         hsv = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2HSV)
-        skin_hsv = cv2.inRange(hsv, np.array([0, 25, 45]), np.array([30, 200, 255]))
+        skin_hsv = cv2.inRange(hsv, np.array([0, 25, 45]), np.array([35, 210, 255]))
 
         raw_skin = cv2.bitwise_and(skin_ycrcb, skin_hsv)
 
@@ -110,104 +108,96 @@ class SkinAnalyzer:
         k_close = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (15, 15))
         skin_closed = cv2.morphologyEx(raw_skin, cv2.MORPH_CLOSE, k_close)
 
-        # 3. Yalnızca merkezi ana yüz konturunu seç (Arka plan nesnelerini ve çarşafları yok et)
+        # 3. Ana baş konturunu bul
         contours, _ = cv2.findContours(skin_closed, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-        face_mask = np.zeros((h, w), dtype=np.uint8)
+        contours = sorted(contours, key=cv2.contourArea, reverse=True)
 
-        if contours:
-            # Konturları alana göre sırala
-            contours = sorted(contours, key=cv2.contourArea, reverse=True)
-            # En büyük bileşeni ana yüz adayı olarak al
-            for cnt in contours:
-                area = cv2.contourArea(cnt)
-                if area > 10000:
-                    x, y, cw, ch = cv2.boundingRect(cnt)
-                    # Yüz genellikle görüntünün orta dikey ekseninde yer alır
-                    cx = x + cw / 2
-                    if 0.15 * w < cx < 0.85 * w:
-                        cv2.drawContours(face_mask, [cnt], -1, 255, -1)
-                        break
+        if contours and cv2.contourArea(contours[0]) > 10000:
+            x, y, cw, ch = cv2.boundingRect(contours[0])
+        else:
+            x, y, cw, ch = int(w * 0.15), int(h * 0.15), int(w * 0.7), int(h * 0.7)
 
-        # Eğer kontur bulunamadıysa (örneğin çok yakın çekim), tüm ten maskesini kullan
-        if cv2.countNonZero(face_mask) < 5000:
-            face_mask = skin_closed
+        # 4. KESİN İÇ YÜZ OVALİ (Kulakları ve kazak/omuz yakasını dışarıda bırakır)
+        inner_face_mask = np.zeros((h, w), dtype=np.uint8)
+        center = (int(x + cw * 0.5), int(y + ch * 0.43))
+        axes = (int(cw * 0.31), int(ch * 0.36))
+        cv2.ellipse(inner_face_mask, center, axes, 0, 0, 360, 255, -1)
 
-        # 4. Yüz içindeki koyu bölgeleri (Gözler, kaşlar, saç, sakal, bıyık, burun delikleri) TESPİT ET VE ÇIKAR
-        # Cilt ortalama parlaklığına göre dinamik eşikleme
-        skin_pixels = gray[face_mask > 0]
-        mean_skin_brightness = np.median(skin_pixels) if len(skin_pixels) > 0 else 140
-        dark_threshold = max(60, min(105, int(mean_skin_brightness * 0.65)))
+        # 5. Gözler, kaşlar, sakal, bıyık ve saç diplerini koyuluk eşiğiyle eler
+        skin_pixels = gray[inner_face_mask > 0]
+        mean_bright = np.median(skin_pixels) if len(skin_pixels) > 0 else 130
+        dark_thresh = max(60, min(95, int(mean_bright * 0.65)))
 
-        dark_features = ((gray < dark_threshold) & (face_mask > 0)).astype(np.uint8) * 255
-        # Sakal ve saç diplerindeki kıl köklerini de kapsamak için genişlet (dilation)
-        k_features = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (15, 15))
-        dark_features_dilated = cv2.dilate(dark_features, k_features)
+        dark_features = ((gray < dark_thresh) & (inner_face_mask > 0)).astype(np.uint8) * 255
+        dark_dilated = cv2.dilate(dark_features, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (11, 11)))
 
-        # Saf cilt alanı = Ana yüz maskesi EKSİ koyu bölgeler (sakal/saç/gözler)
-        pure_skin_mask = cv2.bitwise_and(face_mask, cv2.bitwise_not(dark_features_dilated))
+        # Saf iç yüz derisi = Ten rengi AND İç yüz ovali MINUS Göz/Sakal/Kaş
+        pure_skin = cv2.bitwise_and(skin_closed, inner_face_mask)
+        pure_skin = cv2.bitwise_and(pure_skin, cv2.bitwise_not(dark_dilated))
 
-        # Kenarlardaki gürültüleri gidermek için yumuşat
-        pure_skin_mask = cv2.morphologyEx(pure_skin_mask, cv2.MORPH_OPEN, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (7, 7)))
-
-        return face_mask, pure_skin_mask
+        return inner_face_mask, pure_skin
 
     def detect_blemishes(self, img_bgr: np.ndarray, pure_skin_mask: np.ndarray):
         """
-        Adaptif ve yerel kontrast farkı (Difference from Local Skin) kullanarak
-        sadece gerçek leke, sivilce ve hiperpigmentasyon noktalarını tespit eder.
+        Dermatolojik Erythema (Kızarıklık/Egzema) ve Melanin (Koyu Leke)
+        ayrımını yaparak gerçek lezyonları tespit eder.
         """
         gray = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2GRAY)
-        
-        # 1. Yerel pürüzsüz cilt arka planı çıkar (Geniş Gauss filtresi)
-        local_smooth = cv2.GaussianBlur(gray, (31, 31), 0)
-        
-        # Piksellerin çevrelerine göre ne kadar koyu olduğunu hesapla
-        diff = local_smooth.astype(np.int16) - gray.astype(np.int16)
+        b, g, r = cv2.split(img_bgr.astype(np.float32))
 
-        # 2. Kırmızı sivilce/enflamasyon tespiti (LAB uzayında A kanalı sapması)
-        lab = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2LAB)
-        a_channel = lab[:, :, 1]
-        a_smooth = cv2.GaussianBlur(a_channel, (31, 31), 0)
-        red_diff = a_channel.astype(np.int16) - a_smooth.astype(np.int16)
+        # 1. Egzema ve Enflamasyon (Kızarıklık / Erythema İndeksi: R - G)
+        erythema = r - g
+        erythema_smooth = cv2.GaussianBlur(erythema, (25, 25), 0)
+        erythema_diff = erythema - erythema_smooth
+        eczema_mask = (erythema_diff > 3.4) & (pure_skin_mask > 0)
 
-        # YALNIZCA saf cilt maskesi içinde ve belirgin kontrast sapması olan yerleri al
-        # diff > 20 (koyu lekeler) veya red_diff > 12 (kızarık/sivilce lekeleri)
-        blemish_candidates = ((diff > 20) | (red_diff > 14)) & (pure_skin_mask > 0)
-        blemish_mask = blemish_candidates.astype(np.uint8) * 255
+        # 2. Koyu Leke ve Hiperpigmentasyon (Lokal Parlaklık Farkı)
+        gray_smooth = cv2.GaussianBlur(gray.astype(np.float32), (25, 25), 0)
+        gray_diff = gray_smooth - gray.astype(np.float32)
+        pigment_mask = (gray_diff > 11.0) & (pure_skin_mask > 0)
 
-        # Küçük tek piksellik gürültüleri filtrele
-        k_clean = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
-        blemish_mask = cv2.morphologyEx(blemish_mask, cv2.MORPH_OPEN, k_clean)
+        # İki tür lezyonu birleştir
+        combined_mask = ((eczema_mask | pigment_mask).astype(np.uint8)) * 255
+        combined_mask = cv2.morphologyEx(combined_mask, cv2.MORPH_OPEN, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3)))
 
-        # 3. Kontur geometrisi ve alan analizi
-        contours, _ = cv2.findContours(blemish_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        contours, _ = cv2.findContours(combined_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         valid_blemishes = []
+        eczema_count = 0
+        pigment_count = 0
 
         for cnt in contours:
             area = cv2.contourArea(cnt)
-            # Bir leke en az 12 piksel, en fazla 400 piksel olmalı (daha büyükler gölge veya saç kalıntısıdır)
-            if 12 < area < 450:
-                # Dairesellik kontrolü (uzun çizgiler ve gölgeleri ele)
-                perimeter = cv2.arcLength(cnt, True)
-                if perimeter > 0:
-                    circularity = 4 * np.pi * (area / (perimeter * perimeter))
-                    if circularity > 0.2:  # Lekeler yuvarlaktır
-                        valid_blemishes.append(cnt)
+            # 8 ile 650 piksel arasındaki lezyon ve egzema plakları
+            if 8 < area < 650:
+                mask_cnt = np.zeros_like(gray, dtype=np.uint8)
+                cv2.drawContours(mask_cnt, [cnt], -1, 255, -1)
+                
+                is_eczema = bool(np.mean(erythema_diff[mask_cnt > 0]) > 2.8)
+                if is_eczema:
+                    eczema_count += 1
+                else:
+                    pigment_count += 1
 
-        pure_skin_pixel_count = cv2.countNonZero(pure_skin_mask) + 1e-5
-        total_blemish_area = sum([cv2.contourArea(c) for c in valid_blemishes])
-        blemish_ratio = float((total_blemish_area / pure_skin_pixel_count) * 100)
+                valid_blemishes.append({
+                    "contour": cnt,
+                    "is_eczema": is_eczema,
+                    "area": float(area)
+                })
 
-        # Gerçekçi leke şiddet puanı (0-100)
-        # Normal genç bir ciltte 5-20 leke normaldir
-        blemish_count = len(valid_blemishes)
-        blemish_score = min(100.0, round(blemish_count * 2.2, 1))
+        pure_pixels = cv2.countNonZero(pure_skin_mask) + 1e-5
+        total_area = sum([b["area"] for b in valid_blemishes])
+        blemish_ratio = float((total_area / pure_pixels) * 100)
+
+        total_count = len(valid_blemishes)
+        blemish_score = min(100.0, round(total_count * 3.2, 1))
 
         return {
-            "blemish_count": blemish_count,
+            "blemish_count": total_count,
+            "eczema_count": eczema_count,
+            "pigment_count": pigment_count,
             "blemish_area_ratio": round(blemish_ratio, 3),
             "blemish_score": blemish_score,
-            "contours": valid_blemishes
+            "items": valid_blemishes
         }
 
     def analyze_wrinkles_glcm(self, img_bgr: np.ndarray, pure_skin_mask: np.ndarray):
@@ -256,7 +246,7 @@ class SkinAnalyzer:
         edge_density = float(np.sum(edges > 0) / (edges.shape[0] * edges.shape[1]))
 
         # Normalleştirilmiş kırışıklık puanı
-        wrinkle_score = min(100.0, max(0.0, round((contrast * 22.0) + (edge_density * 150.0), 1)))
+        wrinkle_score = min(100.0, max(0.0, round((contrast * 20.0) + (edge_density * 120.0), 1)))
         smoothness_score = min(100.0, max(0.0, round(homogeneity * 100.0, 1)))
 
         return {
@@ -267,10 +257,10 @@ class SkinAnalyzer:
             "texture_smoothness_score": smoothness_score
         }
 
-    def generate_annotated_image(self, img_bgr: np.ndarray, blemish_contours, pure_skin_mask: np.ndarray) -> str:
+    def generate_annotated_image(self, img_bgr: np.ndarray, blemish_items, pure_skin_mask: np.ndarray) -> str:
         """
-        Yalnızca gerçek lekelere kırmızı çember çizer ve analiz edilen saf cilt
-        alanını hafif saydam yeşil renkle vurgular.
+        Egzema/kızarıklık lezyonlarını parlak kırmızı halka ile,
+        koyu pigment lekelerini amber/turuncu halka ile işaretler.
         """
         output = img_bgr.copy()
 
@@ -281,13 +271,21 @@ class SkinAnalyzer:
         )
         output = cv2.addWeighted(overlay, 0.5, output, 0.5, 0)
 
-        # 2. Tespit edilen gerçek lekelere ince kırmızı halkalar çiz
-        for cnt in blemish_contours:
+        # 2. Lezyonları renkle işaretle
+        for item in blemish_items:
+            cnt = item["contour"]
             (x, y), radius = cv2.minEnclosingCircle(cnt)
             center = (int(x), int(y))
-            r = max(4, int(radius) + 2)
-            cv2.circle(output, center, r, (0, 0, 240), 2)
-            cv2.circle(output, center, 1, (0, 0, 255), -1)
+            r = max(5, int(radius) + 3)
+
+            if item["is_eczema"]:
+                # Egzema / Kızarıklık: Parlak Kırmızı
+                cv2.circle(output, center, r, (0, 0, 255), 2)
+                cv2.circle(output, center, 2, (0, 0, 255), -1)
+            else:
+                # Koyu Leke / Melanin: Amber / Turuncu
+                cv2.circle(output, center, r, (0, 140, 255), 2)
+                cv2.circle(output, center, 2, (0, 140, 255), -1)
 
         # JPEG encode ve base64 dönüşümü
         _, buffer = cv2.imencode('.jpg', output, [cv2.IMWRITE_JPEG_QUALITY, 85])
@@ -298,10 +296,10 @@ class SkinAnalyzer:
         """Tüm analiz adımlarını birleştiren ana metot."""
         img_bgr = self.decode_image(image_bytes)
 
-        # 1. Yüz ve Saf Cilt Maskesini Çıkar (Arka plan ve sakal/saç/göz elenir)
+        # 1. İç Yüz ve Saf Cilt Maskesini Çıkar (Kulak, kazak yakası, saç, sakal elenir)
         face_mask, pure_skin_mask = self.extract_face_and_skin_mask(img_bgr)
 
-        # 2. Leke Analizi (Hassas yerel kontrast)
+        # 2. Leke & Egzema Analizi (Erythema + Pigmentasyon)
         blemish_res = self.detect_blemishes(img_bgr, pure_skin_mask)
 
         # 3. Kırışıklık ve Doku Analizi (Alın/Yanak GLCM)
@@ -314,14 +312,14 @@ class SkinAnalyzer:
 
         # 5. Cilt Durum Yorumu
         if health_score >= 82:
-            status_text = "Çok İyi: Cilt dokusu pürüzsüz ve leke yoğunluğu düşük seviyede."
+            status_text = "Çok İyi: Cilt dokusu pürüzsüz ve lezyon yoğunluğu düşük."
         elif health_score >= 65:
-            status_text = "İyi / Normal: Cilt dokusu sağlıklı, hafif bölgesel lekeler mevcut."
+            status_text = "İyi / Normal: Cilt genel olarak sağlıklı; hafif bölgesel kızarıklık/egzema veya lekeler mevcut."
         else:
-            status_text = "Bakım Önerilir: Leke yoğunluğu veya doku pürüzlülüğü belirgin seviyede."
+            status_text = "Bakım Önerilir: Bölgesel kızarıklık, egzema veya leke yoğunluğu belirgin seviyede."
 
         # 6. İşaretli Görsel Çıktısı
-        annotated_b64 = self.generate_annotated_image(img_bgr, blemish_res["contours"], pure_skin_mask)
+        annotated_b64 = self.generate_annotated_image(img_bgr, blemish_res["items"], pure_skin_mask)
 
         return {
             "status": "success",
@@ -329,6 +327,8 @@ class SkinAnalyzer:
             "status_evaluation": status_text,
             "blemish_analysis": {
                 "detected_spots_count": blemish_res["blemish_count"],
+                "eczema_redness_count": blemish_res["eczema_count"],
+                "pigment_spots_count": blemish_res["pigment_count"],
                 "blemish_density_percentage": blemish_res["blemish_area_ratio"],
                 "blemish_severity_score": blemish_res["blemish_score"]
             },
@@ -341,4 +341,3 @@ class SkinAnalyzer:
             },
             "annotated_image_base64": annotated_b64
         }
-
