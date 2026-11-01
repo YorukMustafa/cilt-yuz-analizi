@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DermAI - Yüz ve Cilt Analizi Sistemi</title>
+    <link rel="stylesheet" href="style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+
+    <!-- Üst Navigasyon Çubuğu -->
+    <header class="navbar">
+        <div class="nav-container">
+            <div class="logo">
+                <span class="logo-icon">✨</span>
+                <span class="logo-text">Derm<strong>AI</strong></span>
+                <span class="badge">Proje I / Bitirme Projesi</span>
+            </div>
+            <div class="nav-links">
+                <span class="api-status" id="apiStatusBadge">● API Kontrol Ediliyor</span>
+            </div>
+        </div>
+    </header>
+
+    <!-- Ana İçerik -->
+    <main class="container">
+        
+        <!-- Başlık Alanı -->
+        <section class="hero-section">
+            <h1>Yapay Zeka ve Görüntü İşleme ile Cilt Analizi</h1>
+            <p>Yüz fotoğrafınızı yükleyin; <strong>HSV Renk Eşikleme</strong> ile lekeleri, <strong>GLCM Doku Analizi</strong> ile kırışıklıkları ve cilt sağlığınızı saniyeler içinde analiz edelim.</p>
+        </section>
+
+        <div class="analysis-grid">
+            
+            <!-- Sol Kolon: Fotoğraf Yükleme Alanı -->
+            <div class="card upload-card">
+                <h2>1. Fotoğraf Yükleyin</h2>
+                <p class="subtitle">İyi aydınlatılmış, doğrudan yüzü gösteren bir portre fotoğrafı seçiniz.</p>
+
+                <div class="drop-zone" id="dropZone">
+                    <div class="drop-zone-content" id="dropZoneContent">
+                        <div class="upload-icon">📸</div>
+                        <p><strong>Fotoğrafı buraya sürükleyin</strong> ya da tıklayarak seçin</p>
+                        <span class="file-hint">Desteklenen: JPG, PNG, WEBP (Maks 10MB)</span>
+                    </div>
+                    <img id="imagePreview" class="preview-img" alt="Önizleme" style="display: none;">
+                    <input type="file" id="fileInput" accept="image/*" style="display: none;">
+                </div>
+
+                <div class="action-buttons">
+                    <button id="analyzeBtn" class="btn btn-primary" disabled>
+                        <span class="btn-text">Analizi Başlat</span>
+                        <div class="spinner" id="btnSpinner" style="display: none;"></div>
+                    </button>
+                    <button id="resetBtn" class="btn btn-secondary" style="display: none;">Temizle</button>
+                </div>
+            </div>
+
+            <!-- Sağ Kolon: Analiz Sonuç Paneli -->
+            <div class="card results-card" id="resultsCard">
+                <h2>2. Analiz Raporu</h2>
+                <p class="subtitle">Yapay zeka ve deterministik görüntü işleme metrikleri</p>
+
+                <!-- Başlangıç Boş Durum Bilgisi -->
+                <div class="empty-state" id="emptyState">
+                    <div class="empty-icon">📊</div>
+                    <p>Sonuçları görmek için lütfen soldaki alandan bir fotoğraf yükleyip <strong>"Analizi Başlat"</strong> butonuna basınız.</p>
+                </div>
+
+                <!-- Sonuç Verileri (Gizli başlar) -->
+                <div class="results-content" id="resultsContent" style="display: none;">
+                    
+                    <!-- Genel Skor Kartı -->
+                    <div class="score-banner">
+                        <div class="score-circle">
+                            <span class="score-num" id="overallScore">--</span>
+                            <span class="score-label">/ 100</span>
+                        </div>
+                        <div class="score-details">
+                            <h3>Genel Cilt Sağlık Puanı</h3>
+                            <p id="statusEvaluation">Analiz tamamlandı.</p>
+                        </div>
+                    </div>
+
+                    <!-- Detaylı Metrik Kartları -->
+                    <div class="metric-row">
+                        <!-- Leke Analizi -->
+                        <div class="metric-box">
+                            <div class="metric-header">
+                                <span class="metric-icon">🔴</span>
+                                <h4>Leke Analizi (HSV)</h4>
+                            </div>
+                            <div class="metric-value" id="spotCount">0</div>
+                            <div class="metric-desc">Tespit Edilen Leke / Çil</div>
+                            <div class="progress-bar">
+                                <div class="progress-fill fill-red" id="spotBar" style="width: 0%;"></div>
+                            </div>
+                            <div class="metric-sub">Şiddet Puanı: <strong id="spotSeverity">--</strong></div>
+                        </div>
+
+                        <!-- Kırışıklık & GLCM Analizi -->
+                        <div class="metric-box">
+                            <div class="metric-header">
+                                <span class="metric-icon">〰️</span>
+                                <h4>Kırışıklık (GLCM)</h4>
+                            </div>
+                            <div class="metric-value" id="wrinkleScore">0</div>
+                            <div class="metric-desc">Kırışıklık & Çizgi Yoğunluğu</div>
+                            <div class="progress-bar">
+                                <div class="progress-fill fill-blue" id="wrinkleBar" style="width: 0%;"></div>
+                            </div>
+                            <div class="metric-sub">Pürüzsüzlük: <strong id="smoothnessScore">--</strong></div>
+                        </div>
+                    </div>
+
+                    <!-- Haralick Matematiksel Öznitelikleri -->
+                    <div class="haralick-details">
+                        <h4>Haralick Doku Metrikleri (Akademik Çıktılar):</h4>
+                        <ul>
+                            <li>GLCM Kontrast: <span id="haralickContrast">--</span></li>
+                            <li>GLCM Homojenlik: <span id="haralickHomogeneity">--</span></li>
+                            <li>GLCM Enerji: <span id="haralickEnergy">--</span></li>
+                        </ul>
+                    </div>
+
+                    <!-- AI İşaretli Görsel İnceleme -->
+                    <div class="annotated-section">
+                        <h4>İşaretlenmiş Analiz Haritası</h4>
+                        <p class="small-desc">Kırmızı çemberler tespit edilen pigment lekelerini, yeşil filtre analiz edilen cilt bölgesini gösterir.</p>
+                        <div class="image-comparison">
+                            <img id="annotatedImage" alt="İşaretlenmiş Görsel" class="result-img">
+                        </div>
+                    </div>
+
+                </div>
+            </div>
+
+        </div>
+
+    </main>
+
+    <footer class="footer">
+        <p>Namık Kemal Üniversitesi - Bilgisayar Mühendisliği | Proje I & II</p>
+    </footer>
+
+    <script src="app.js"></script>
+</body>
+</html>

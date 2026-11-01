@@ -1,0 +1,97 @@
+TY  - BOOK
+AU  - Gonzalez, Rafael C.
+AU  - Woods, Richard E.
+TI  - Digital Image Processing
+ET  - 4th
+PY  - 2018
+PB  - Pearson
+ER  - 
+
+TY  - JOUR
+AU  - Haralick, Robert M.
+AU  - Shanmugam, K.
+AU  - Dinstein, Its'Hak
+TI  - Textural Features for Image Classification
+JO  - IEEE Transactions on Systems, Man, and Cybernetics
+PY  - 1973
+VL  - SMC-3
+IS  - 6
+SP  - 610
+EP  - 621
+DO  - 10.1109/TSMC.1973.4309314
+ER  - 
+
+TY  - CONF
+AU  - He, Kaiming
+AU  - Zhang, Xiangyu
+AU  - Ren, Shaoqing
+AU  - Sun, Jian
+TI  - Deep Residual Learning for Image Recognition
+JO  - Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition (CVPR)
+PY  - 2016
+SP  - 770
+EP  - 778
+DO  - 10.1109/CVPR.2016.90
+ER  - 
+
+TY  - JOUR
+AU  - LeCun, Yann
+AU  - Bengio, Yoshua
+AU  - Hinton, Geoffrey
+TI  - Deep Learning
+JO  - Nature
+PY  - 2015
+VL  - 521
+IS  - 7553
+SP  - 436
+EP  - 444
+DO  - 10.1038/nature14539
+ER  - 
+
+TY  - CONF
+AU  - Liu, Ziwei
+AU  - Luo, Ping
+AU  - Wang, Xiaogang
+AU  - Tang, Xiaoou
+TI  - Deep Learning Face Attributes in the Wild
+JO  - Proceedings of the IEEE International Conference on Computer Vision (ICCV)
+PY  - 2015
+SP  - 3730
+EP  - 3738
+DO  - 10.1109/ICCV.2015.425
+ER  - 
+
+TY  - JOUR
+AU  - Otsu, Nobuyuki
+TI  - A Threshold Selection Method from Gray-Level Histograms
+JO  - IEEE Transactions on Systems, Man, and Cybernetics
+PY  - 1979
+VL  - 9
+IS  - 1
+SP  - 62
+EP  - 66
+DO  - 10.1109/TSMC.1979.4310076
+ER  - 
+
+TY  - CONF
+AU  - Tan, Mingxing
+AU  - Le, Quoc
+TI  - EfficientNet: Rethinking Model Scaling for Convolutional Neural Networks
+JO  - International Conference on Machine Learning (ICML)
+PY  - 2019
+SP  - 6105
+EP  - 6114
+ER  - 
+
+TY  - JOUR
+AU  - Tschandl, Philipp
+AU  - Rosendahl, Cliff
+AU  - Kittler, Harald
+TI  - The HAM10000 dataset, a large collection of multi-source dermatoscopic images of common pigmented skin lesions
+JO  - Scientific Data
+PY  - 2018
+VL  - 5
+IS  - 1
+SP  - 180161
+DO  - 10.1038/sdata.2018.161
+ER  - 
